@@ -1,0 +1,15 @@
+#!/bin/bash
+root=$1
+shift
+plackup --port 4242 -MPlack::App::Directory -e '
+    enable_if { $_[0]->{REQUEST_URI} =~ /\.(md|mkdwn|markdown)$/ }
+        SimpleContentFilter => filter => sub {
+            use Text::MultiMarkdown qw(markdown);
+            $_ = markdown($_, {use_wikilinks=>1})
+        };
+    enable_if { $_[0]->{REQUEST_URI} =~ /\.(md|mkdwn|markdown)$/ }
+        Header => set => [qw(Content-Type text/html)];
+    enable Expires =>
+        content_type => qr/./,
+        expires      => "now plus 1 second";
+    Plack::App::Directory->new({ root => q['"$root"'] })->to_app' "$@"
