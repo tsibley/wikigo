@@ -1,10 +1,12 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
+use utf8;
 
 use Plack::Builder;
 use Plack::Runner;
 use Plack::App::Directory;
+use File::Spec;
 
 my $root = @ARGV ? shift : '.';
 
@@ -12,9 +14,26 @@ my $root = @ARGV ? shift : '.';
 unshift @ARGV, '--port' => 4242;
 
 my $app = builder {
-    my $is_markdown = qr/\.(md|mkdwn|markdown)$/i;
+    my @markdown = qw(md mkdwn markdown);
+    my $extensions = join "|", @markdown;
+    my $is_markdown = qr/\.($extensions)$/i;
 
-    enable_if { $_[0]->{REQUEST_URI} =~ /$is_markdown/ }
+    # Don't require the extension for markdown files
+    enable Rewrite =>
+        rules => sub {
+            my $path = File::Spec->rel2abs(substr($_,1), $root);
+            return if -e $path;
+            for my $ext (@markdown) {
+                if (-f "$path.$ext") {
+                    $_ .= ".$ext";
+                    last;
+                }
+            }
+            return;
+        };
+
+    # Render markdown → HTML
+    enable_if { $_[0]->{PATH_INFO} =~ /$is_markdown/ }
         SimpleContentFilter => filter => sub {
             eval {
                 require Text::MultiMarkdown;
@@ -23,9 +42,10 @@ my $app = builder {
             return $_;
         };
 
-    enable_if { $_[0]->{REQUEST_URI} =~ /$is_markdown/ }
+    enable_if { $_[0]->{PATH_INFO} =~ /$is_markdown/ }
         Header => set => [ 'Content-Type' => 'text/html' ];
 
+    # Always show the latest and greatest
     enable Expires =>
         content_type => qr/./,
         expires      => "now plus 1 second";
